@@ -1,28 +1,42 @@
-//
-//  ContentView.swift
-//  healthwaves
-//
-//  Created by Sophia Xu on 2026-02-07.
-//
-
 import SwiftUI
 
 struct ContentView: View {
-    let hk = HealthKitService()
+    private let hk = HealthKitManager()
+
+    @State private var status = "Not connected"
+    @State private var stepsText = "--"
 
     var body: some View {
-        Button("Connect Health") {
-            hk.requestAuthorization { success, message in
-                   print(success)
-                   print(message)
-                    Text("connected")
-               }
+        VStack(spacing: 16) {
+            Text(status)
+            Text("Today’s steps: \(stepsText)")
+                .font(.title2)
+
+            Button("Connect Health") {
+                hk.requestAuthorization { success, message in
+                    status = success ? "✅ Authorized" : "❌ Not authorized: \(message)"
+                    if success {
+                        loadSteps()
+                    }
+                }
+            }
+
+            Button("Refresh Steps") {
+                loadSteps()
+            }
         }
         .padding()
     }
-    
-}
 
-#Preview {
-    ContentView()
+    private func loadSteps() {
+        hk.fetchTodaySteps { steps, error in
+            if let error = error {
+                status = "❌ Step fetch failed: \(error)"
+                stepsText = "--"
+            } else {
+                status = "✅ Steps loaded"
+                stepsText = String(Int(steps))
+            }
+        }
+    }
 }
