@@ -8,15 +8,19 @@
 import SwiftUI
 
 struct ContentView: View {
+    let hk = HealthKitService()
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        Button("Connect Health") {
+            hk.requestAuthorization { success, message in
+                   print(success)
+                   print(message)
+                    Text("connected")
+               }
         }
         .padding()
     }
+    
 }
 
 #Preview {
