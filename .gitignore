@@ -8,6 +8,7 @@ tmp/
 # Frontend build/deps
 HeartWavesUIReact/node_modules/
 HeartWavesUIReact/dist/
+HeartWavesUIReact/*.tsbuildinfo
 
 # Local secrets/env
 .env
