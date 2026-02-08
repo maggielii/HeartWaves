@@ -9,20 +9,23 @@ final class HealthKitManager {
             return
         }
 
-        guard let steps = HKObjectType.quantityType(forIdentifier: .stepCount) else {
+        guard
+            let steps = HKObjectType.quantityType(forIdentifier: .stepCount),
+            let distance = HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning),
+            let activeenergy = HKObjectType.quantityType(forIdentifier: .activeEnergyBurned),
+            let heartrate = HKObjectType.quantityType(forIdentifier: .heartRate),
+            let sleepAnalysis = HKObjectType.categoryType(forIdentifier: .sleepAnalysis),
+            let envAudio = HKObjectType.quantityType(forIdentifier: .environmentalAudioExposure),
+            let headphoneAudio = HKObjectType.quantityType(forIdentifier: .headphoneAudioExposure)
+
+        else {
             completion(false, "StepCount type not available")
             return
         }
-        guard let distance = HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning) else {
-            completion(false, "Distance type not available")
-            return
-        }
-        guard let activeenergy = HKObjectType.quantityType(forIdentifier: .activeEnergyBurned) else {
-            completion(false, "activeEnergyBurned type not available")
-            return
-        }
+    
+        
 
-        store.requestAuthorization(toShare: [], read: [steps, distance, activeenergy]) { success, error in
+        store.requestAuthorization(toShare: [], read: [steps, distance, activeenergy, heartrate, sleepAnalysis, envAudio, headphoneAudio]) { success, error in
             DispatchQueue.main.async {
                 completion(success, error?.localizedDescription ?? "OK")
             }
@@ -49,4 +52,189 @@ final class HealthKitManager {
 
         store.execute(query)
     }
+    
+    /// may change options to discrete max/min depending on what looking for
+    func fetchTodayDiscrete(id: HKQuantityTypeIdentifier, unit: HKUnit, completion: @escaping (Double, String?) -> Void) {
+        guard let fetchType = HKQuantityType.quantityType(forIdentifier: id) else {
+            completion(0, "Type not available")
+            return
+        }
+
+        let startOfDay = Calendar.current.startOfDay(for: Date())
+        let predicate = HKQuery.predicateForSamples(withStart: startOfDay, end: Date(), options: .strictStartDate)
+
+        let query = HKStatisticsQuery(quantityType: fetchType,
+                                      quantitySamplePredicate: predicate,
+                                      options: .discreteAverage) { _, result, error in
+            let average = result?.averageQuantity()?.doubleValue(for: unit) ?? 0
+            DispatchQueue.main.async {
+                completion(average, error?.localizedDescription)
+            }
+        }
+
+        store.execute(query)
+    }
+    
+    
+    
+    func fetchSamples(id: HKQuantityTypeIdentifier,
+                      unit: HKUnit,
+                      startDate: Date,
+                      endDate: Date,
+                      completion: @escaping ([HealthDataPoint], String?) -> Void) {
+        
+        guard let quantityType = HKQuantityType.quantityType(forIdentifier: id) else {
+            completion([], "Type not available")
+            return
+        }
+        
+        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
+        
+        let query = HKSampleQuery(sampleType: quantityType,
+                                  predicate: predicate,
+                                  limit: HKObjectQueryNoLimit,
+                                  sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]) { _, samples, error in
+            
+            guard let samples = samples as? [HKQuantitySample] else {
+                DispatchQueue.main.async {
+                    completion([], error?.localizedDescription)
+                }
+                return
+            }
+            
+            let dataPoints = samples.map { sample in
+                HealthDataPoint(
+                    date: sample.startDate,
+                    value: sample.quantity.doubleValue(for: unit)
+                )
+            }
+            
+            DispatchQueue.main.async {
+                completion(dataPoints, nil)
+            }
+        }
+        
+        store.execute(query)
+    }
+    
+    
+    func fetchDailyQuantity(
+        id: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        startDate: Date,
+        endDate: Date,
+        options: HKStatisticsOptions,
+        completion: @escaping ([HealthDataPoint], String?) -> Void
+    ) {
+        guard let quantityType = HKQuantityType.quantityType(forIdentifier: id) else {
+            completion([], "Type not available")
+            return
+        }
+
+        let calendar = Calendar.current
+        let anchorDate = calendar.startOfDay(for: startDate)
+        var interval = DateComponents()
+        interval.day = 1
+
+        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
+
+        let query = HKStatisticsCollectionQuery(
+            quantityType: quantityType,
+            quantitySamplePredicate: predicate,
+            options: options,
+            anchorDate: anchorDate,
+            intervalComponents: interval
+        )
+
+        query.initialResultsHandler = { _, results, error in
+            if let error = error {
+                DispatchQueue.main.async { completion([], error.localizedDescription) }
+                return
+            }
+
+            var points: [HealthDataPoint] = []
+            results?.enumerateStatistics(from: startDate, to: endDate) { stat, _ in
+                let value: Double
+                switch options {
+                case .cumulativeSum:
+                    value = stat.sumQuantity()?.doubleValue(for: unit) ?? 0
+                case .discreteAverage:
+                    value = stat.averageQuantity()?.doubleValue(for: unit) ?? 0
+                case .discreteMin:
+                    value = stat.minimumQuantity()?.doubleValue(for: unit) ?? 0
+                case .discreteMax:
+                    value = stat.maximumQuantity()?.doubleValue(for: unit) ?? 0
+                default:
+                    value = stat.averageQuantity()?.doubleValue(for: unit) ?? 0
+                }
+
+                points.append(HealthDataPoint(date: stat.startDate, value: value))
+            }
+
+            DispatchQueue.main.async {
+                completion(points.sorted { $0.date < $1.date }, nil)
+            }
+        }
+
+        store.execute(query)
+    }
+
+    
+    
+    
+    func fetchSleepData(startDate: Date, endDate: Date, completion: @escaping ([SleepDataPoint], String?) -> Void) {
+        guard let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else {
+            completion([], "Sleep type not available")
+            return
+        }
+        
+        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
+        
+        let query = HKSampleQuery(sampleType: sleepType,
+                                  predicate: predicate,
+                                  limit: HKObjectQueryNoLimit,
+                                  sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]) { _, samples, error in
+            
+            guard let samples = samples as? [HKCategorySample] else {
+                DispatchQueue.main.async {
+                    completion([], error?.localizedDescription)
+                }
+                return
+            }
+            
+            let sleepData = samples.map { sample in
+                SleepDataPoint(
+                    startDate: sample.startDate,
+                    endDate: sample.endDate,
+                    value: HKCategoryValueSleepAnalysis(rawValue: sample.value) ?? .asleepUnspecified
+                )
+            }
+            
+            DispatchQueue.main.async {
+                completion(sleepData, nil)
+            }
+        }
+        
+        store.execute(query)
+    }
+    
+    func fillMissingDays(points: [HealthDataPoint], startDate: Date, endDate: Date) -> [HealthDataPoint] {
+        let cal = Calendar.current
+        let startDay = cal.startOfDay(for: startDate)
+        let endDay = cal.startOfDay(for: endDate)
+
+        var map: [Date: Double] = [:]
+        for p in points {
+            map[cal.startOfDay(for: p.date)] = p.value
+        }
+
+        var out: [HealthDataPoint] = []
+        var d = startDay
+        while d < endDay {
+            out.append(HealthDataPoint(date: d, value: map[d] ?? 0))
+            d = cal.date(byAdding: .day, value: 1, to: d)!
+        }
+        return out
+    }
+
 }

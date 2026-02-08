@@ -15,33 +15,77 @@ struct HomeView: View {
     @State private var stepsText = "--"
     @State private var distanceText = "--"
     @State private var energyText = "--"
+    @State private var heartRateText = "--"
     
     var body: some View {
-        VStack(spacing: 16) {
-            Text(status)
-            Text("Today’s steps: \(stepsText)")
-                .font(.title2)
-            Text("Today’s distance: \(distanceText)")
-                .font(.title2)
-            Text("Today’s acgive energy: \(energyText)")
-                .font(.title2)
-            
-            
-            
-            
-            
-            
-            Button("Refresh Steps") {
-                loadSteps()
-                loadDistance()
-                loadActiveEnergy()
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 16) {
+                Text("Today's Summary")
+                    .font(.system(size: 35, weight: .bold))
+                    .foregroundColor(.primary)
+                
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack {
+                        HealthCard(
+                            icon: "figure.walk",
+                            title: "Steps",
+                            value: stepsText,
+                            unit: "",
+                            color: .blue
+                        )
+                        HealthCard(
+                            icon: "figure.walk",
+                            title: "Distance",
+                            value: distanceText,
+                            unit: "km",
+                            color: .blue
+                        )
+                        HealthCard(
+                            icon: "figure.walk",
+                            title: "Energy",
+                            value: energyText,
+                            unit: "kcal",
+                            color: .blue
+                        )
+                        HealthCard(
+                            icon: "waveform.path.ecg",
+                            title: "Heart Rate",
+                            value: heartRateText,
+                            unit: "bpm",
+                            color: .blue
+                        )
+                    }
+                    
+                }
+                StepsChartView()
+                RestingHRChartView()
+                SleepTimelineView()
+                ExerciseMinutesChartView()
+                EnergyHeatmapView()
+                HeartRateChartView()
+                InsightsCardView()
+
+                
+                
+                
+                
+                
+                
+                
+                
+                Button("Refresh Steps") {
+                    loadSteps()
+                    loadDistance()
+                    loadActiveEnergy()
+                    loadHeartRate()
+                }
             }
+            .padding()
+            .onAppear( perform: {loadSteps(); loadDistance(); loadActiveEnergy(); loadHeartRate()} )
         }
-        .padding()
-        .onAppear( perform: {loadSteps(); loadDistance(); loadActiveEnergy()} )
     }
-    
-    
+        
+        
     private func loadSteps() {
         hk.fetchTodayGeneral(id: .stepCount, unit: .count(), completion: { steps, error in
             if let error = error {
@@ -83,4 +127,20 @@ struct HomeView: View {
         }
         )
     }
+    
+    private func loadHeartRate() {
+        hk.fetchTodayDiscrete(id: .heartRate, unit: .count().unitDivided(by: .minute()), completion: { heartrate, error in
+            if let error = error {
+                status = "❌ Step fetch failed: \(error)"
+                heartRateText = "--"
+            } else {
+                status = "✅ Steps loaded"
+                heartRateText = String(Int(heartrate))
+            }
+            
+        }
+        )
+    }
+    
+    
 }
